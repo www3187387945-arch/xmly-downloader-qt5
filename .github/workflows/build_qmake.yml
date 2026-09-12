@@ -23,15 +23,15 @@ jobs:
      needs: build 
      
      steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
           repository: jing332/plz-download
-      - uses: actions/setup-node@v2.1.1
+      - uses: actions/setup-node@v4
         with: 
           node-version: v14.3.0 
           
       - name: Download All Build Artifacts
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v4
         with:
           path: ./download
        
@@ -63,7 +63,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           repository: jing332/xmly-downloader-qt5
           
@@ -77,7 +77,7 @@ jobs:
           g++ -v
         
       - name: Install Go
-        uses: actions/setup-go@v2.1.1
+        uses: actions/setup-go@v5
       
       - name: Install Qt
         run: |
@@ -146,21 +146,21 @@ jobs:
           
       - name: Upload Windows Artifact
         if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v2.1.4
+        uses: actions/upload-artifact@v4
         with:
           name: xmly-downloader-qt5_win32_${{ github.run_id }}.7z
           path: ./build/xmly-downloader-qt5_win32.7z
         
       - name: Upload Linux Artifact
         if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v2.1.4
+        uses: actions/upload-artifact@v4
         with:
           name: xmly-downloader-qt5_linux_${{ github.run_id }}.tar.xz
           path: ./build/xmly-downloader-qt5_linux.tar.xz
           
       - name: Upload MacOS Artifact
         if: runner.os == 'macOS'
-        uses: actions/upload-artifact@v2.1.4
+        uses: actions/upload-artifact@v4
         with:
           name: xmly-downloader-qt5_macOS_${{ github.run_id }}.tar.xz
           path: ./build/xmly-downloader-qt5_macOS.tar.xz
