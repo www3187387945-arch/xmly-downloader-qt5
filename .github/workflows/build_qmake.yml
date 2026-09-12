@@ -1,166 +1,68 @@
-name: QMake Build Matrix
+name: Build Windows EXE
 
 on:
   push:
     branches: [ master ]
-    paths: 
-      - 'src/**'
-      - '.github/workflows/**'
-  pull_request:
-    branches: [ master ]
-    paths: 
-      - 'src/**'
-      - '.github/workflows/**'
-  
-defaults:
-  run:
-    shell: pwsh
+  workflow_dispatch:
 
 jobs:
-   upload:
-     name: Upload
-     runs-on: ubuntu-latest
-     needs: build 
-     
-     steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: jing332/plz-download
-      - uses: actions/setup-node@v4
-        with: 
-          node-version: v14.3.0 
-          
-      - name: Download All Build Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: ./download
-       
-      - name: Upload to WebDAV
-        run: |
-          npm i
-          npm start
-        env:
-          url: ${{ secrets.nutstore_url }}
-          username: ${{ secrets.nutstore_username }}
-          password: ${{ secrets.nutstore_password }}
-  
-   build:
-    name: ${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
-        include:
-          - os: windows-latest
-            name: "Windows Latest MinGW"
-            
-          - os: ubuntu-latest
-            name: "Ubuntu Latest GCC"
-          
-          - os: macos-latest
-            name: "macOS Latest Clang"
+  build-windows:
+    runs-on: windows-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install Qt + MinGW toolchain
+        uses: jurplel/install-qt-action@v4
         with:
-          repository: jing332/xmly-downloader-qt5
-          
-      - name: Switch gcc and g++ version to 9
-        if: runner.os == 'Linux'
+          version: '5.15.2'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_mingw81'
+          tools: 'tools_mingw,qt.tools.win64_mingw810'
+          set-env: true
+
+      - name: Add MinGW to PATH
+        shell: pwsh
         run: |
-          echo ${{ github.ref }}
-          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 100
-          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-9 100
-          gcc -v
-          g++ -v
-        
+          $mingwBin = "${{ env.IQTA_TOOLS }}\mingw810_64\bin"
+          echo "$mingwBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
       - name: Install Go
         uses: actions/setup-go@v5
-      
-      - name: Install Qt
-        run: |
-          if ("${{ runner.os }}" -eq "Windows") {
-            curl -LJO https://github.com/lkeegan/qt5-static/releases/download/5.15.0-no-zstd/qt5-static-win32.tgz
-            7z x qt5-static-win32.tgz
-            7z x qt5-static-win32.tar
-            echo "::add-path::${{ github.workspace }}\c\libs\bin"
-          }
-          elseif ("${{ runner.os }}" -eq "Linux") {
-            curl -LJO https://github.com/lkeegan/qt5-static/releases/download/5.15.0-no-zstd/qt5-static-linux.tgz
-            tar xzf qt5-static-linux.tgz
-            echo "::add-path::${{ github.workspace }}/opt/libs/bin"
-          }
-          elseif ("${{ runner.os }}" -eq "MacOS") {
-            curl -LJO https://github.com/lkeegan/qt5-static/releases/download/5.15.0-no-zstd/qt5-static-osx.tgz
-            tar xzf qt5-static-osx.tgz
-            echo "::add-path::${{ github.workspace }}/opt/libs/bin"
-          }
-          
-      - name: Install Libs
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install libxcb*
-          sudo apt-get install libx11-xcb
-          sudo apt-get install libx11-xcb-dev
-          sudo apt-get install libxkbcommon-x11-dev
+        with:
+          go-version: '1.21'
 
-      - name: Init Environment
+      - name: Build cgo static library
+        shell: pwsh
+        env:
+          CGO_ENABLED: '1'
         run: |
-          echo "::set-env name=RELEASE_VERSION::${GITHUB_REF#refs/*/}"
-          if ("${{ runner.os }}" -eq "windows") {
-            echo "::add-path::C:\msys64"
-          }
-          qmake -v
-          go env
+          cd src/cgoqt
+          go build -buildmode=c-archive -o xmlydownloader.a
 
-      - name: Build
+      - name: Build with qmake
+        shell: pwsh
         run: |
-          if ("${{ runner.os }}" -eq "windows") {
-            $env:MSYS2_PATH_TYPE="inherit"
-            msys2_shell.cmd -defterm -no-start -here -mingw32 -l ./ci/build.sh
-          }
-          else {
-            bash ./ci/build.sh
-          }
-          
-      - name: Pack Application
-        run: |
+          mkdir build
           cd build
-          if ("${{ runner.os }}" -eq "Windows") {
-            mkdir xmly-downloader-qt5_win32
-            copy ./release/xmly-downloader-qt5.exe ./xmly-downloader-qt5_win32
-            7z a xmly-downloader-qt5_win32.7z ./xmly-downloader-qt5_win32
-          }
-          elseif ("${{ runner.os }}" -eq "Linux") {
-            mkdir xmly-downloader-qt5_linux
-            ls
-            copy ./xmly-downloader-qt5 ./xmly-downloader-qt5_linux
-            tar cvfJ xmly-downloader-qt5_linux.tar.xz ./xmly-downloader-qt5_linux
-          }
-          elseif ("${{ runner.os }}" -eq "macOS") {
-            tar cvfJ xmly-downloader-qt5_macOS.tar.xz ./xmly-downloader-qt5.app
-          }
-          
-      - name: Upload Windows Artifact
-        if: runner.os == 'Windows'
+          qmake CONFIG+=release ../src/xmly-downloader-qt5.pro
+          mingw32-make -j2
+
+      - name: Bundle Qt DLLs
+        shell: pwsh
+        run: |
+          cd build/release
+          windeployqt xmly-downloader-qt5.exe
+
+      - name: Package into zip
+        shell: pwsh
+        run: |
+          Compress-Archive -Path build/release/* -DestinationPath xmly-downloader-qt5_win64.zip
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: xmly-downloader-qt5_win32_${{ github.run_id }}.7z
-          path: ./build/xmly-downloader-qt5_win32.7z
-        
-      - name: Upload Linux Artifact
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
-        with:
-          name: xmly-downloader-qt5_linux_${{ github.run_id }}.tar.xz
-          path: ./build/xmly-downloader-qt5_linux.tar.xz
-          
-      - name: Upload MacOS Artifact
-        if: runner.os == 'macOS'
-        uses: actions/upload-artifact@v4
-        with:
-          name: xmly-downloader-qt5_macOS_${{ github.run_id }}.tar.xz
-          path: ./build/xmly-downloader-qt5_macOS.tar.xz
+          name: xmly-downloader-qt5_win64
+          path: xmly-downloader-qt5_win64.zip
