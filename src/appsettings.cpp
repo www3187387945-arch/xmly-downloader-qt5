@@ -33,3 +33,5 @@ QString AppSettings::cookie() const {
 void AppSettings::setCookie(const QString &cookie) {
   settings_->setValue("cookie", cookie);
 }
+
+ 
